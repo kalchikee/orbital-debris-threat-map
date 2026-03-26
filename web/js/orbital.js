@@ -5,13 +5,26 @@
 window.OrbitalData = (function () {
 
   /* ── Config ────────────────────────────────────────────────────────── */
+  // Split 'active' into smaller groups — CelesTrak 403s the huge active/starlink
+  // groups from browser origins. Smaller groups pass through fine.
   const GROUPS = [
-    { key: 'active',          label: 'Active Satellites',  url: 'https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle' },
-    { key: 'starlink',        label: 'Starlink',           url: 'https://celestrak.org/NORAD/elements/gp.php?GROUP=starlink&FORMAT=tle' },
-    { key: 'cosmos2251',      label: 'Cosmos 2251 Debris', url: 'https://celestrak.org/NORAD/elements/gp.php?GROUP=cosmos-2251-debris&FORMAT=tle' },
-    { key: 'fengyun',         label: 'Fengyun-1C Debris',  url: 'https://celestrak.org/NORAD/elements/gp.php?GROUP=fengyun-1c-debris&FORMAT=tle' },
-    { key: 'cosmos1408',      label: 'Cosmos 1408 Debris', url: 'https://celestrak.org/NORAD/elements/gp.php?GROUP=cosmos-1408-debris&FORMAT=tle' },
+    { key: 'starlink',    label: 'Starlink',           url: 'https://celestrak.org/NORAD/elements/gp.php?GROUP=starlink&FORMAT=tle' },
+    { key: 'oneweb',      label: 'OneWeb',             url: 'https://celestrak.org/NORAD/elements/gp.php?GROUP=oneweb&FORMAT=tle' },
+    { key: 'iridium',     label: 'Iridium',            url: 'https://celestrak.org/NORAD/elements/gp.php?GROUP=iridium-NEXT&FORMAT=tle' },
+    { key: 'active',      label: 'Weather & Nav Sats', url: 'https://celestrak.org/NORAD/elements/gp.php?GROUP=weather&FORMAT=tle' },
+    { key: 'active',      label: 'NOAA Satellites',    url: 'https://celestrak.org/NORAD/elements/gp.php?GROUP=noaa&FORMAT=tle' },
+    { key: 'active',      label: 'GPS Constellation',  url: 'https://celestrak.org/NORAD/elements/gp.php?GROUP=gps-ops&FORMAT=tle' },
+    { key: 'active',      label: 'GLONASS',            url: 'https://celestrak.org/NORAD/elements/gp.php?GROUP=glo-ops&FORMAT=tle' },
+    { key: 'active',      label: 'Space Stations',     url: 'https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=tle' },
+    { key: 'active',      label: 'Earth Resources',    url: 'https://celestrak.org/NORAD/elements/gp.php?GROUP=resource&FORMAT=tle' },
+    { key: 'active',      label: 'GEO Belt',           url: 'https://celestrak.org/NORAD/elements/gp.php?GROUP=geo&FORMAT=tle' },
+    { key: 'cosmos2251',  label: 'Cosmos 2251 Debris', url: 'https://celestrak.org/NORAD/elements/gp.php?GROUP=cosmos-2251-debris&FORMAT=tle' },
+    { key: 'fengyun',     label: 'Fengyun-1C Debris',  url: 'https://celestrak.org/NORAD/elements/gp.php?GROUP=fengyun-1c-debris&FORMAT=tle' },
+    { key: 'cosmos1408',  label: 'Cosmos 1408 Debris', url: 'https://celestrak.org/NORAD/elements/gp.php?GROUP=cosmos-1408-debris&FORMAT=tle' },
   ];
+
+  // Server-side proxy — fetches CelesTrak as a non-browser client, bypassing 403s
+  const PROXY = 'https://api.allorigins.win/raw?url=';
 
   const STALE_DAYS = 30;  // Flag TLEs older than this
 
@@ -42,6 +55,7 @@ window.OrbitalData = (function () {
               if (onProgress) onProgress(done / total, g.label);
               return { key: g.key, label: g.label, text };
             })
+            .catch(e => { done++; throw e; })
         )
       );
 
@@ -159,17 +173,24 @@ window.OrbitalData = (function () {
   };
 
   /* ── Helpers ────────────────────────────────────────────────────────── */
-  async function fetchWithRetry(url, retries = 2) {
-    for (let i = 0; i <= retries; i++) {
-      try {
-        const r = await fetch(url, { cache: 'default' });
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return await r.text();
-      } catch (e) {
-        if (i === retries) throw e;
-        await sleep(1000 * (i + 1));
-      }
+  async function fetchWithRetry(url) {
+    // 1. Try direct fetch
+    try {
+      const r = await fetch(url, { cache: 'default' });
+      if (r.ok) return await r.text();
+      if (r.status !== 403) throw new Error(`HTTP ${r.status}`);
+      console.warn(`[orbital] Direct fetch 403 for ${url} — retrying via proxy`);
+    } catch (e) {
+      console.warn(`[orbital] Direct fetch failed (${e.message}) — trying proxy`);
     }
+
+    // 2. Proxy fallback — allorigins fetches server-side, CelesTrak sees a
+    //    non-browser User-Agent and responds normally
+    await sleep(300); // brief pause before proxy attempt
+    const proxyUrl = PROXY + encodeURIComponent(url);
+    const r2 = await fetch(proxyUrl, { cache: 'default' });
+    if (!r2.ok) throw new Error(`Proxy HTTP ${r2.status}`);
+    return await r2.text();
   }
 
   function parseTLEs(text, groupKey) {

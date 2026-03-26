@@ -441,7 +441,7 @@ async function loadData() {
     await OrbitalData.fetchAll((pct, label) => {
       loaded++;
       loadDetail.textContent = `✓ ${label}`;
-      mapLoadMsg.textContent = `Loading group ${loaded}/5: ${label}…`;
+      mapLoadMsg.textContent = `Loading group ${loaded}/13: ${label}…`;
     });
 
     mapLoadMsg.textContent = 'Computing positions via SGP4…';
