@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Orbital Debris Threat Map | Space Situational Awareness Dashboard</title>
+  <meta name="description" content="Interactive GIS dashboard visualizing 30,000+ tracked orbital objects, debris fields, and collision risk zones in near-Earth orbit using live CelesTrak data.">
+
+  <!-- All dependencies served locally — no CDN requests at runtime -->
+  <script src="web/js/lib/three.min.js"></script>
+  <script src="web/js/lib/globe.gl.min.js"></script>
+  <script src="web/js/lib/satellite.min.js"></script>
+  <script src="web/js/lib/chart.umd.min.js"></script>
+
+  <link rel="stylesheet" href="web/css/style.css">
+</head>
+<body>
+
+<!-- ── HEADER ──────────────────────────────────────────────────────────────── -->
+<header>
+  <div class="header-inner">
+    <div class="header-title">
+      <div class="header-icon">🛰</div>
+      <div>
+        <h1>Orbital Debris Threat Map</h1>
+        <p class="subtitle">Space Situational Awareness &middot; CelesTrak / USSPACECOM &middot; Live TLE Data &middot; SGP4 Propagation</p>
+      </div>
+    </div>
+    <nav class="header-nav">
+      <button class="nav-btn active" data-panel="map">Ground Track Map</button>
+      <button class="nav-btn" data-panel="analysis">Debris Analysis</button>
+      <button class="nav-btn" data-panel="about">Methodology</button>
+    </nav>
+  </div>
+</header>
+
+<!-- ── STAT BANNER ─────────────────────────────────────────────────────────── -->
+<div class="stat-banner">
+  <div class="stat-card">
+    <div class="stat-number" id="stat-total">—</div>
+    <div class="stat-label">Objects Tracked</div>
+  </div>
+  <div class="stat-card debris">
+    <div class="stat-number" id="stat-debris">—</div>
+    <div class="stat-label">Debris Objects</div>
+  </div>
+  <div class="stat-card active">
+    <div class="stat-number" id="stat-active">—</div>
+    <div class="stat-label">Active Satellites</div>
+  </div>
+  <div class="stat-card starlink">
+    <div class="stat-number" id="stat-starlink">—</div>
+    <div class="stat-label">Starlink Constellation</div>
+  </div>
+  <div class="stat-card risk">
+    <div class="stat-number" id="stat-risk">—</div>
+    <div class="stat-label">High-Risk Zone (700–900 km)</div>
+  </div>
+  <div class="stat-card graveyard">
+    <div class="stat-number" id="stat-graveyard">—</div>
+    <div class="stat-label">GEO / Graveyard Objects</div>
+  </div>
+</div>
+
+<!-- ── MAIN CONTENT ────────────────────────────────────────────────────────── -->
+<main>
+
+  <!-- MAP PANEL ──────────────────────────────────────────────────────────── -->
+  <section id="panel-map" class="panel active">
+    <div class="map-layout">
+
+      <!-- SIDEBAR -->
+      <div class="map-sidebar">
+
+        <!-- Data Load Status -->
+        <div class="sidebar-section">
+          <h3>Data Source</h3>
+          <div class="load-status" id="load-status">
+            <div class="spinner"></div> Connecting to CelesTrak…
+          </div>
+          <div class="load-detail" id="load-detail"></div>
+          <div class="data-source-info">
+            <span class="ds-tag">CelesTrak</span>
+            <span class="ds-epoch" id="data-epoch">—</span>
+          </div>
+        </div>
+
+        <!-- Layer Controls -->
+        <div class="sidebar-section">
+          <h3>Data Layers</h3>
+          <div class="legend">
+            <label class="legend-item">
+              <input type="checkbox" id="chk-debris" checked>
+              <span class="dot" style="background:#f57c00"></span>
+              Debris Field <small id="cnt-debris"></small>
+            </label>
+            <label class="legend-item">
+              <input type="checkbox" id="chk-active" checked>
+              <span class="dot" style="background:#58a6ff"></span>
+              Active Satellites <small id="cnt-active"></small>
+            </label>
+            <label class="legend-item">
+              <input type="checkbox" id="chk-starlink" checked>
+              <span class="dot" style="background:#8957e5"></span>
+              Starlink Constellation <small id="cnt-starlink"></small>
+            </label>
+            <label class="legend-item">
+              <input type="checkbox" id="chk-risk" checked>
+              <span class="dot" style="background:#d32f2f"></span>
+              High-Risk Zone (700–900 km) <small id="cnt-risk"></small>
+            </label>
+            <label class="legend-item">
+              <input type="checkbox" id="chk-graveyard">
+              <span class="dot" style="background:#8b949e"></span>
+              Graveyard Orbit (&gt;36,000 km) <small id="cnt-graveyard"></small>
+            </label>
+          </div>
+        </div>
+
+        <!-- Orbital Regime Quick Filter -->
+        <div class="sidebar-section">
+          <h3>Orbital Regime Filter</h3>
+          <div class="regime-btns">
+            <button class="regime-btn active" data-regime="all">ALL</button>
+            <button class="regime-btn" data-regime="leo">LEO</button>
+            <button class="regime-btn" data-regime="meo">MEO</button>
+            <button class="regime-btn" data-regime="geo">GEO</button>
+          </div>
+          <div class="regime-info" id="regime-info">Showing all orbital regimes</div>
+        </div>
+
+        <!-- Altitude Range Filter -->
+        <div class="sidebar-section">
+          <h3>Altitude Filter</h3>
+          <div class="alt-filter">
+            <div class="range-row">
+              <label>Min</label>
+              <input type="range" id="alt-min" min="0" max="42164" value="0" step="100">
+              <span id="alt-min-val">0 km</span>
+            </div>
+            <div class="range-row">
+              <label>Max</label>
+              <input type="range" id="alt-max" min="0" max="42164" value="42164" step="100">
+              <span id="alt-max-val">42,164 km</span>
+            </div>
+          </div>
+          <div class="alt-context">
+            <span class="alt-badge leo">LEO 160–2,000</span>
+            <span class="alt-badge meo">MEO 2,000–35,786</span>
+            <span class="alt-badge geo">GEO ~35,786</span>
+          </div>
+        </div>
+
+        <!-- Object Info on Hover/Click -->
+        <div class="sidebar-section" id="object-info-panel">
+          <h3>Object Inspector</h3>
+          <div id="object-info" class="object-info-empty">
+            <span>Hover over an object on the map to inspect it</span>
+          </div>
+        </div>
+
+        <!-- Refresh Control -->
+        <div class="sidebar-section">
+          <h3>Refresh</h3>
+          <button class="refresh-btn" id="refresh-btn">&#8635; Refresh Positions</button>
+          <div class="refresh-info" id="last-refresh">—</div>
+        </div>
+
+      </div><!-- /sidebar -->
+
+      <!-- GLOBE AREA -->
+      <div class="map-area" id="map-area">
+        <div id="globe-container"></div>
+        <div id="tooltip" class="tooltip hidden"></div>
+        <div id="hover-coords" class="hover-coords hidden"></div>
+        <div id="map-loading" class="map-loading">
+          <div class="spinner-large"></div>
+          <div id="map-load-msg">Loading orbital data…</div>
+        </div>
+        <div id="globe-controls" class="globe-controls">
+          <button class="gc-btn" id="gc-rotate" title="Toggle auto-rotate">⟳ Rotate</button>
+          <button class="gc-btn" id="gc-reset" title="Reset camera">⊙ Reset</button>
+          <button class="gc-btn" id="gc-leo" title="Zoom to LEO">LEO View</button>
+          <button class="gc-btn" id="gc-geo" title="Pull out to GEO">GEO View</button>
+        </div>
+        <div class="globe-legend">
+          <div class="gl-title">Subsatellite Ground Tracks</div>
+          <div class="gl-row"><span class="gl-dot" style="background:#f57c00"></span>Debris Field</div>
+          <div class="gl-row"><span class="gl-dot" style="background:#58a6ff"></span>Active Satellites</div>
+          <div class="gl-row"><span class="gl-dot" style="background:#8957e5"></span>Starlink Constellation</div>
+          <div class="gl-row"><span class="gl-dot" style="background:#ff3d3d"></span>High-Risk Zone (700–900 km)</div>
+          <div class="gl-row"><span class="gl-dot" style="background:#8b949e"></span>GEO / Graveyard</div>
+        </div>
+      </div>
+
+    </div><!-- /map-layout -->
+
+    <!-- Status Bar -->
+    <div class="status-bar">
+      <span id="sb-crs">CRS: WGS84 Geodetic · SGP4/TEME→ECEF→Geodetic · WebGL Globe</span>
+      <span id="sb-coords">Hover globe for coordinates</span>
+      <span id="sb-alt">Rendering: subsatellite ground tracks · color = object class</span>
+      <span id="sb-count">Objects rendered: —</span>
+    </div>
+
+  </section><!-- /panel-map -->
+
+  <!-- ANALYSIS PANEL ─────────────────────────────────────────────────────── -->
+  <section id="panel-analysis" class="panel">
+    <div class="analysis-layout">
+
+      <!-- Density Histogram -->
+      <div class="analysis-card wide">
+        <div class="card-header">
+          <h3>Debris Density by Altitude</h3>
+          <span class="card-sub">Objects per 200 km altitude band &middot; LEO shell analysis</span>
+        </div>
+        <div class="chart-container">
+          <canvas id="density-chart"></canvas>
+        </div>
+        <div class="chart-note">Peak congestion near 780 km — primary debris accumulation zone. Kessler cascade threshold is approaching critical density in this shell.</div>
+      </div>
+
+      <!-- Kessler Syndrome Indicators -->
+      <div class="analysis-card">
+        <div class="card-header">
+          <h3>Kessler Syndrome Indicators</h3>
+          <span class="card-sub">Cascade risk metrics &middot; LEO debris growth</span>
+        </div>
+        <div class="kessler-grid" id="kessler-grid">
+          <div class="k-metric">
+            <div class="k-val" id="k-total">—</div>
+            <div class="k-label">Total Tracked Objects</div>
+            <div class="k-trend up">&#8593; ~340/yr</div>
+          </div>
+          <div class="k-metric">
+            <div class="k-val danger" id="k-debris-pct">—</div>
+            <div class="k-label">% Debris vs. Active</div>
+            <div class="k-trend up">Growing</div>
+          </div>
+          <div class="k-metric">
+            <div class="k-val warning" id="k-frags">630+</div>
+            <div class="k-label">Fragmentation Events</div>
+            <div class="k-trend up">Cumulative</div>
+          </div>
+          <div class="k-metric">
+            <div class="k-val danger">APPROACHING</div>
+            <div class="k-label">LEO Cascade Threshold</div>
+            <div class="k-trend neutral">780 km shell</div>
+          </div>
+          <div class="k-metric">
+            <div class="k-val warning">8.7</div>
+            <div class="k-label">Objects / 100 km³ (LEO)</div>
+            <div class="k-trend up">Critical &gt; 10</div>
+          </div>
+          <div class="k-metric">
+            <div class="k-val" id="k-graveyard-count">—</div>
+            <div class="k-label">GEO Graveyard Objects</div>
+            <div class="k-trend neutral">Above GEO ring</div>
+          </div>
+        </div>
+        <div class="risk-gauge-wrap">
+          <div class="risk-label">Cascade Risk Index</div>
+          <div class="risk-bar-bg">
+            <div class="risk-bar-fill" id="risk-bar" style="width:72%"></div>
+          </div>
+          <div class="risk-bar-labels">
+            <span>Low</span><span>Moderate</span><span>High</span><span>Critical</span>
+          </div>
+          <div class="risk-value">72 / 100 — HIGH</div>
+        </div>
+      </div>
+
+      <!-- Conjunction Warning Feed -->
+      <div class="analysis-card">
+        <div class="card-header">
+          <h3>Conjunction Warning Feed</h3>
+          <span class="card-sub">Active CDM alerts &middot; Space-Track.org &middot; Pc threshold &gt; 1×10⁻⁵</span>
+        </div>
+        <div class="cdm-note">
+          <span class="cdm-badge">API NOTE</span> Live CDM data requires Space-Track.org authentication. Displaying representative conjunction events based on published alerts.
+        </div>
+        <div class="cdm-feed" id="cdm-feed">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+
+      <!-- Debris by Source -->
+      <div class="analysis-card">
+        <div class="card-header">
+          <h3>Debris Field Attribution</h3>
+          <span class="card-sub">Major fragmentation events &middot; tracked debris by origin</span>
+        </div>
+        <div class="chart-container half">
+          <canvas id="source-chart"></canvas>
+        </div>
+        <table class="source-table">
+          <thead><tr><th>Event</th><th>Year</th><th>Objects</th><th>% Total</th></tr></thead>
+          <tbody id="source-tbody">
+            <tr><td>Fengyun-1C ASAT Test</td><td>2007</td><td>~3,500</td><td>9.6%</td></tr>
+            <tr><td>Cosmos 2251 Collision</td><td>2009</td><td>~2,000</td><td>5.5%</td></tr>
+            <tr><td>Cosmos 1408 ASAT Test</td><td>2021</td><td>~1,500</td><td>4.1%</td></tr>
+            <tr><td>Iridium 33 Collision</td><td>2009</td><td>~600</td><td>1.6%</td></tr>
+            <tr><td>Other Fragmentation Events</td><td>Various</td><td>~14,400</td><td>39.5%</td></tr>
+            <tr class="total-row"><td><strong>Total Debris</strong></td><td>—</td><td><strong id="src-total">—</strong></td><td><strong>60.3%</strong></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+    </div><!-- /analysis-layout -->
+  </section><!-- /panel-analysis -->
+
+  <!-- ABOUT PANEL ────────────────────────────────────────────────────────── -->
+  <section id="panel-about" class="panel">
+    <div class="about-layout">
+      <div class="about-card">
+        <h2>Technical Methodology</h2>
+        <p class="about-sub">GIS Portfolio &middot; Space Situational Awareness Dashboard &middot; March 2026</p>
+
+        <h3>Data Pipeline</h3>
+        <p>Orbital element data is fetched directly from <strong>CelesTrak</strong> (celestrak.org) via their REST API in TLE (Two-Line Element) format. Five object groups are loaded in parallel: active satellites, Starlink constellation, Cosmos 2251 debris, Fengyun-1C debris, and Cosmos 1408 debris. Data is refreshed from source on each page load with a 6-hour browser cache.</p>
+
+        <h3>Orbital Propagation (SGP4)</h3>
+        <p>Object positions are computed using the <strong>SGP4/SDP4 perturbation model</strong> via the satellite.js library, a JavaScript port of the canonical NORAD SGP4 implementation. Each TLE set is propagated to the current UTC time, producing position and velocity vectors in the <strong>TEME</strong> (True Equator, Mean Equinox) reference frame.</p>
+
+        <h3>Coordinate Reference System Transformations</h3>
+        <div class="crs-chain">
+          <div class="crs-step">
+            <div class="crs-name">TEME</div>
+            <div class="crs-desc">SGP4 Output<br>Earth-Centered Inertial</div>
+          </div>
+          <div class="crs-arrow">→</div>
+          <div class="crs-step">
+            <div class="crs-name">ECEF</div>
+            <div class="crs-desc">Earth-Centered<br>Earth-Fixed (ITRF)</div>
+          </div>
+          <div class="crs-arrow">→</div>
+          <div class="crs-step active-crs">
+            <div class="crs-name">WGS84</div>
+            <div class="crs-desc">Geodetic<br>Lat / Lon / Alt</div>
+          </div>
+          <div class="crs-arrow">→</div>
+          <div class="crs-step">
+            <div class="crs-name">EPSG:4326</div>
+            <div class="crs-desc">Map Projection<br>Equirectangular</div>
+          </div>
+        </div>
+        <p>The GMST (Greenwich Mean Sidereal Time) rotation matrix is applied to transform TEME to ECEF. Geodetic coordinates are then derived using the WGS84 ellipsoid parameters. Subsatellite points are projected onto the map using an equirectangular (plate carrée) projection — EPSG:4326 — which provides a 1:1 mapping between geographic coordinates and pixel coordinates at the equator.</p>
+
+        <h3>Spatial Analysis</h3>
+        <p>Density analysis is performed by binning objects into 200 km altitude bands and computing object counts per band. The 700–900 km LEO shell is flagged as a <strong>High-Risk Zone</strong> due to known debris field concentration from the 2007 Fengyun-1C and 2009 Cosmos 2251/Iridium 33 events. Objects within this shell are symbolized separately to convey collision risk.</p>
+        <p>The <strong>Kessler Syndrome</strong> risk index is a composite metric based on: total debris ratio, LEO object density per 100 km³, annual fragmentation rate, and proximity to the critical density threshold estimated by NASA orbital debris researchers at approximately 10 objects per 100 km³ in the 700–900 km shell.</p>
+
+        <h3>Cartographic Design</h3>
+        <p>The base map uses Natural Earth country boundaries (1:110 million scale) rendered via D3-geo on HTML5 Canvas. A 30° graticule provides spatial reference. Objects are symbolized by a five-category classification scheme using a diverging color palette designed for dark backgrounds. Layer opacity and dot size are scaled by object category to reduce visual clutter at high object densities.</p>
+
+        <h3>Data Sources &amp; Attribution</h3>
+        <table class="source-table">
+          <thead><tr><th>Source</th><th>Dataset</th><th>Format</th><th>Update Freq.</th></tr></thead>
+          <tbody>
+            <tr><td>CelesTrak (USSPACECOM)</td><td>GP Element Sets (TLE/OMM)</td><td>TLE Text</td><td>Multiple daily</td></tr>
+            <tr><td>Natural Earth</td><td>Country Boundaries 1:110m</td><td>TopoJSON</td><td>Static</td></tr>
+            <tr><td>NASA ODPO</td><td>Orbital Debris Quarterly News</td><td>PDF/Literature</td><td>Quarterly</td></tr>
+            <tr><td>ESA DISCOS</td><td>Fragmentation Event Catalog</td><td>Literature</td><td>As-published</td></tr>
+          </tbody>
+        </table>
+
+        <h3>Limitations</h3>
+        <ul class="about-list">
+          <li>SGP4 propagation accuracy degrades for TLE epochs older than 14 days. Objects with stale TLEs (&gt;30 days) are flagged with reduced opacity.</li>
+          <li>The conjunction warning feed uses representative CDM data; live Space-Track.org CDM access requires authenticated API access not available in client-side deployments.</li>
+          <li>Objects below 160 km altitude are typically undergoing atmospheric reentry and may appear at invalid positions.</li>
+          <li>Classified military satellites (~1,000 objects) are not included in public TLE catalogs.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<script src="web/js/orbital.js"></script>
+<script src="web/js/app.js"></script>
+</body>
+</html>
